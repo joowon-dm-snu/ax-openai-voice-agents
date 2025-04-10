@@ -88,8 +88,8 @@ members = ["agents"]
 agents = { workspace = true }
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agents"]

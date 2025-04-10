@@ -1,3 +1,7 @@
+[tool.poetry]
+name = "openai-agents"        
+version = "0.0.1"
+
 [project]
 name = "openai-agents"
 version = "0.0.9"

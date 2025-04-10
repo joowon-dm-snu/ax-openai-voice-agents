@@ -165,9 +165,10 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
                 {
                     "type": "transcription_session.update",
                     "session": {
-                        "input_audio_format": "pcm16",
-                        "input_audio_transcription": {"model": self._model},
                         "turn_detection": self._turn_detection,
+                        "input_audio_format": "g711_ulaw",
+                        "input_audio_transcription": {"model": self._model, "prompt": self._settings.prompt, "language": self._settings.language},
+                        "input_audio_noise_reduction": {"type": "near_field"},
                     },
                 }
             )

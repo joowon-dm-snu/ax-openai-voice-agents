@@ -18,6 +18,48 @@ from .events import (
 from .imports import np, npt
 from .model import TTSModel, TTSModelSettings
 from .pipeline_config import VoicePipelineConfig
+from scipy.signal import resample_poly
+
+
+def pcm_to_ulaw(pcm: np.ndarray) -> np.ndarray:
+    """
+    int16 PCM 데이터를 표준 G.711 μ-law (8비트, uint8) 포맷으로 변환합니다.
+    """
+    BIAS = 0x84    # 132, μ-law 변환 시 bias 값
+    CLIP = 32635   # 클리핑 레벨
+
+    # 연산 중 오버플로우를 막기 위해 int32로 변환
+    pcm = pcm.astype(np.int32)
+    pcm = np.clip(pcm, -32768, 32767)
+
+    # 부호 추출 (음수인 경우 0x80, 양수면 0)
+    sign = np.where(pcm < 0, 0x80, 0)
+
+    # 절대값 취한 후 bias 적용
+    pcm = np.abs(pcm) + BIAS
+    pcm = np.clip(pcm, 0, CLIP)
+
+    # 각 샘플에 대해 exponent 계산
+    with np.errstate(divide="ignore"):  # 로그0에 대한 경고 무시
+        exponent = np.floor(np.log2(pcm)).astype(np.int32) - 7
+    exponent = np.clip(exponent, 0, 7)
+
+    # mantissa 계산: (exponent+3) 비트 오른쪽 시프트한 후 하위 4비트 추출
+    mantissa = (pcm >> (exponent + 3)) & 0x0F
+
+    # 부호, exponent, mantissa 합친 후 1의 보수 처리
+    ulaw_byte = ~(sign | (exponent << 4) | mantissa) & 0xFF
+
+    return ulaw_byte.astype(np.uint8)
+
+def resample_pcm_to_8kHz(pcm: np.ndarray, orig_sr: int = 24000, target_sr: int = 8000) -> np.ndarray:
+    """
+    입력 PCM (int16) 배열을 원본 샘플레이트(orig_sr)에서 타겟 샘플레이트(target_sr)로 리샘플링합니다.
+    scipy.signal.resample_poly 함수를 사용하여 효율적인 필터링과 함께 리샘플링합니다.
+    """
+    # up=1, down=3인 경우 24000 → 8000
+    resampled = resample_poly(pcm, up=1, down=orig_sr // target_sr)
+    return resampled.astype(np.int16)
 
 
 def _audio_to_base64(audio_data: list[bytes]) -> str:
@@ -89,13 +131,8 @@ class StreamedAudioResult:
         self, buffer: list[bytes], output_dtype: npt.DTypeLike
     ) -> npt.NDArray[np.int16 | np.float32]:
         np_array = np.frombuffer(b"".join(buffer), dtype=np.int16)
-
-        if output_dtype == np.int16:
-            return np_array
-        elif output_dtype == np.float32:
-            return (np_array.astype(np.float32) / 32767.0).reshape(-1, 1)
-        else:
-            raise UserError("Invalid output dtype")
+        np_array = resample_pcm_to_8kHz(np_array, orig_sr=24000, target_sr=8000)
+        return pcm_to_ulaw(np_array)
 
     async def _stream_audio(
         self,

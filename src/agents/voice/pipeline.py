@@ -11,6 +11,10 @@ from .pipeline_config import VoicePipelineConfig
 from .result import StreamedAudioResult
 from .workflow import VoiceWorkflowBase
 
+class IntroFinished(Exception):
+    """Custom exception to indicate that the intro message has finished processing."""
+    pass
+
 
 class VoicePipeline:
     """An opinionated voice agent pipeline. It works in three steps:
@@ -44,6 +48,29 @@ class VoicePipeline:
         self._stt_model_name = stt_model if isinstance(stt_model, str) else None
         self._tts_model_name = tts_model if isinstance(tts_model, str) else None
         self.config = config or VoicePipelineConfig()
+
+    async def trigger_intro_message(self, invoke_intro_message:str) -> StreamedAudioResult:
+        output = StreamedAudioResult(
+            self._get_tts_model(), self.config.tts_settings, self.config
+        )
+        async def process_turns():
+            try:
+                result = self.workflow.run(invoke_intro_message)
+                async for text_event in result:
+                    await output._add_text(text_event)
+                await output._turn_done()
+                raise IntroFinished()
+            except IntroFinished:
+                pass
+            except Exception as e:
+                logger.error(f"Error processing turns: {e}")
+                await output._add_error(e)
+                raise e
+            finally:
+                await output._done()
+
+        output._set_task(asyncio.create_task(process_turns()))
+        return output
 
     async def run(self, audio_input: AudioInput | StreamedAudioInput) -> StreamedAudioResult:
         """Run the voice pipeline.

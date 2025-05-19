@@ -5,6 +5,8 @@ import base64
 from collections.abc import AsyncIterator
 from typing import Any
 
+from scipy.signal import resample_poly
+
 from ..exceptions import UserError
 from ..logger import logger
 from ..tracing import Span, SpeechGroupSpanData, speech_group_span, speech_span
@@ -18,15 +20,14 @@ from .events import (
 from .imports import np, npt
 from .model import TTSModel, TTSModelSettings
 from .pipeline_config import VoicePipelineConfig
-from scipy.signal import resample_poly
 
 
 def pcm_to_ulaw(pcm: np.ndarray) -> np.ndarray:
     """
     int16 PCM 데이터를 표준 G.711 μ-law (8비트, uint8) 포맷으로 변환합니다.
     """
-    BIAS = 0x84    # 132, μ-law 변환 시 bias 값
-    CLIP = 32635   # 클리핑 레벨
+    BIAS = 0x84  # 132, μ-law 변환 시 bias 값
+    CLIP = 32635  # 클리핑 레벨
 
     # 연산 중 오버플로우를 막기 위해 int32로 변환
     pcm = pcm.astype(np.int32)
@@ -52,7 +53,10 @@ def pcm_to_ulaw(pcm: np.ndarray) -> np.ndarray:
 
     return ulaw_byte.astype(np.uint8)
 
-def resample_pcm_to_8kHz(pcm: np.ndarray, orig_sr: int = 24000, target_sr: int = 8000) -> np.ndarray:
+
+def resample_pcm_to_8kHz(
+    pcm: np.ndarray, orig_sr: int = 24000, target_sr: int = 8000
+) -> np.ndarray:
     """
     입력 PCM (int16) 배열을 원본 샘플레이트(orig_sr)에서 타겟 샘플레이트(target_sr)로 리샘플링합니다.
     scipy.signal.resample_poly 함수를 사용하여 효율적인 필터링과 함께 리샘플링합니다.
@@ -142,7 +146,9 @@ class StreamedAudioResult:
     ):
         with speech_span(
             model=self.tts_model.model_name,
-            input=text if self._voice_pipeline_config.trace_include_sensitive_data else "",
+            input=text
+            if self._voice_pipeline_config.trace_include_sensitive_data
+            else "",
             model_config={
                 "voice": self.tts_settings.voice,
                 "instructions": self.instructions,
@@ -165,7 +171,9 @@ class StreamedAudioResult:
                         buffer.append(chunk)
                         full_audio_data.append(chunk)
                         if len(buffer) >= self._buffer_size:
-                            audio_np = self._transform_audio_buffer(buffer, self.tts_settings.dtype)
+                            audio_np = self._transform_audio_buffer(
+                                buffer, self.tts_settings.dtype
+                            )
                             if self.tts_settings.transform_data:
                                 audio_np = self.tts_settings.transform_data(audio_np)
                             await local_queue.put(
@@ -173,10 +181,14 @@ class StreamedAudioResult:
                             )  # Use local queue
                             buffer = []
                 if buffer:
-                    audio_np = self._transform_audio_buffer(buffer, self.tts_settings.dtype)
+                    audio_np = self._transform_audio_buffer(
+                        buffer, self.tts_settings.dtype
+                    )
                     if self.tts_settings.transform_data:
                         audio_np = self.tts_settings.transform_data(audio_np)
-                    await local_queue.put(VoiceStreamEventAudio(data=audio_np))  # Use local queue
+                    await local_queue.put(
+                        VoiceStreamEventAudio(data=audio_np)
+                    )  # Use local queue
 
                 if self._voice_pipeline_config.trace_include_sensitive_audio_data:
                     tts_span.span_data.output = _audio_to_base64(full_audio_data)
@@ -211,7 +223,9 @@ class StreamedAudioResult:
         self.total_output_text += text
         self._turn_text_buffer += text
 
-        combined_sentences, self._text_buffer = self.tts_settings.text_splitter(self._text_buffer)
+        combined_sentences, self._text_buffer = self.tts_settings.text_splitter(
+            self._text_buffer
+        )
 
         if len(combined_sentences) >= 20:
             local_queue: asyncio.Queue[VoiceStreamEvent | None] = asyncio.Queue()
@@ -222,10 +236,16 @@ class StreamedAudioResult:
             if self._dispatcher_task is None:
                 self._dispatcher_task = asyncio.create_task(self._dispatch_audio())
 
+    async def _turn_intercepted(self):
+        self._text_buffer = ""
+        self._done_processing = False
+
     async def _turn_done(self):
         if self._text_buffer:
             local_queue: asyncio.Queue[VoiceStreamEvent | None] = asyncio.Queue()
-            self._ordered_tasks.append(local_queue)  # Append the local queue for the final segment
+            self._ordered_tasks.append(
+                local_queue
+            )  # Append the local queue for the final segment
             self._tasks.append(
                 asyncio.create_task(
                     self._stream_audio(self._text_buffer, local_queue, finish_turn=True)
@@ -314,7 +334,10 @@ class StreamedAudioResult:
             if event is None:
                 break
             yield event
-            if event.type == "voice_stream_event_lifecycle" and event.event == "session_ended":
+            if (
+                event.type == "voice_stream_event_lifecycle"
+                and event.event == "session_ended"
+            ):
                 break
 
         self._check_errors()

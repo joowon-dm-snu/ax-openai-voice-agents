@@ -11,8 +11,10 @@ from .pipeline_config import VoicePipelineConfig
 from .result import StreamedAudioResult
 from .workflow import VoiceWorkflowBase
 
+
 class IntroFinished(Exception):
     """Custom exception to indicate that the intro message has finished processing."""
+
     pass
 
 
@@ -49,10 +51,13 @@ class VoicePipeline:
         self._tts_model_name = tts_model if isinstance(tts_model, str) else None
         self.config = config or VoicePipelineConfig()
 
-    async def trigger_intro_message(self, invoke_intro_message:str) -> StreamedAudioResult:
+    async def trigger_intro_message(
+        self, invoke_intro_message: str
+    ) -> StreamedAudioResult:
         output = StreamedAudioResult(
             self._get_tts_model(), self.config.tts_settings, self.config
         )
+
         async def process_turns():
             try:
                 result = self.workflow.run(invoke_intro_message)
@@ -72,7 +77,9 @@ class VoicePipeline:
         output._set_task(asyncio.create_task(process_turns()))
         return output
 
-    async def run(self, audio_input: AudioInput | StreamedAudioInput) -> StreamedAudioResult:
+    async def run(
+        self, audio_input: AudioInput | StreamedAudioInput
+    ) -> StreamedAudioResult:
         """Run the voice pipeline.
 
         Args:
@@ -93,12 +100,16 @@ class VoicePipeline:
 
     def _get_tts_model(self) -> TTSModel:
         if not self.tts_model:
-            self.tts_model = self.config.model_provider.get_tts_model(self._tts_model_name)
+            self.tts_model = self.config.model_provider.get_tts_model(
+                self._tts_model_name
+            )
         return self.tts_model
 
     def _get_stt_model(self) -> STTModel:
         if not self.stt_model:
-            self.stt_model = self.config.model_provider.get_stt_model(self._stt_model_name)
+            self.stt_model = self.config.model_provider.get_stt_model(
+                self._stt_model_name
+            )
         return self.stt_model
 
     async def _process_audio_input(self, audio_input: AudioInput) -> str:
@@ -140,7 +151,9 @@ class VoicePipeline:
             output._set_task(asyncio.create_task(stream_events()))
             return output
 
-    async def _run_multi_turn(self, audio_input: StreamedAudioInput) -> StreamedAudioResult:
+    async def _run_multi_turn(
+        self, audio_input: StreamedAudioInput
+    ) -> StreamedAudioResult:
         with TraceCtxManager(
             workflow_name=self.config.workflow_name or "Voice Agent",
             trace_id=None,
@@ -162,9 +175,12 @@ class VoicePipeline:
             async def process_turns():
                 try:
                     async for input_text in transcription_session.transcribe_turns():
-                        result = self.workflow.run(input_text)
-                        async for text_event in result:
-                            await output._add_text(text_event)
+                        if input_text == "TURN IS INTERCEPTED":
+                            await output._start_turn()
+                        else:
+                            result = self.workflow.run(input_text)
+                            async for text_event in result:
+                                await output._add_text(text_event)
                         await output._turn_done()
                 except Exception as e:
                     logger.error(f"Error processing turns: {e}")

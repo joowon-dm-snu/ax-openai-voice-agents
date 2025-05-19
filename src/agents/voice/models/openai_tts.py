@@ -39,6 +39,11 @@ class OpenAITTSModel(TTSModel):
         Returns:
             An iterator of audio chunks.
         """
+        print(f"Running TTS model {self.model} with settings: {settings}")
+        print(f"Using voice: {settings.voice or DEFAULT_VOICE}")
+        print(f"Using instructions: {settings.instructions}")
+        print(f"Using text: {text}")
+
         response = self._client.audio.speech.with_streaming_response.create(
             model=self.model,
             voice=settings.voice or DEFAULT_VOICE,

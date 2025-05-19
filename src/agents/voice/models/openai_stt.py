@@ -50,7 +50,9 @@ def _audio_to_base64(audio_data: list[npt.NDArray[np.int16 | np.float32]]) -> st
 
 
 async def _wait_for_event(
-    event_queue: asyncio.Queue[dict[str, Any]], expected_types: list[str], timeout: float
+    event_queue: asyncio.Queue[dict[str, Any]],
+    expected_types: list[str],
+    timeout: float,
 ):
     """
     Wait for an event from event_queue whose type is in expected_types within the specified timeout.
@@ -88,12 +90,16 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
         self._trace_include_sensitive_data = trace_include_sensitive_data
         self._trace_include_sensitive_audio_data = trace_include_sensitive_audio_data
 
-        self._input_queue: asyncio.Queue[npt.NDArray[np.int16 | np.float32]] = input.queue
-        self._output_queue: asyncio.Queue[str | ErrorSentinel | SessionCompleteSentinel] = (
+        self._input_queue: asyncio.Queue[npt.NDArray[np.int16 | np.float32]] = (
+            input.queue
+        )
+        self._output_queue: asyncio.Queue[
+            str | ErrorSentinel | SessionCompleteSentinel
+        ] = asyncio.Queue()
+        self._websocket: websockets.ClientConnection | None = None
+        self._event_queue: asyncio.Queue[dict[str, Any] | WebsocketDoneSentinel] = (
             asyncio.Queue()
         )
-        self._websocket: websockets.ClientConnection | None = None
-        self._event_queue: asyncio.Queue[dict[str, Any] | WebsocketDoneSentinel] = asyncio.Queue()
         self._state_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._turn_audio_buffer: list[npt.NDArray[np.int16 | np.float32]] = []
         self._tracing_span: Span[TranscriptionSpanData] | None = None
@@ -123,7 +129,9 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
 
         if self._tracing_span:
             if self._trace_include_sensitive_audio_data:
-                self._tracing_span.span_data.input = _audio_to_base64(self._turn_audio_buffer)
+                self._tracing_span.span_data.input = _audio_to_base64(
+                    self._turn_audio_buffer
+                )
 
             self._tracing_span.span_data.input_format = "pcm"
 
@@ -142,7 +150,9 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
                 event = json.loads(message)
 
                 if event.get("type") == "error":
-                    raise STTWebsocketConnectionError(f"Error event: {event.get('error')}")
+                    raise STTWebsocketConnectionError(
+                        f"Error event: {event.get('error')}"
+                    )
 
                 if event.get("type") in [
                     "session.updated",
@@ -167,7 +177,11 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
                     "session": {
                         "turn_detection": self._turn_detection,
                         "input_audio_format": "g711_ulaw",
-                        "input_audio_transcription": {"model": self._model, "prompt": self._settings.prompt, "language": self._settings.language},
+                        "input_audio_transcription": {
+                            "model": self._model,
+                            "prompt": self._settings.prompt,
+                            "language": self._settings.language,
+                        },
                         "input_audio_noise_reduction": {"type": "near_field"},
                     },
                 }
@@ -227,12 +241,22 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
                     break
 
                 event_type = event.get("type", "unknown")
-                if event_type == "conversation.item.input_audio_transcription.completed":
+                print(f"Event: {event}")
+                if (
+                    event_type
+                    == "conversation.item.input_audio_transcription.completed"
+                ):
                     transcript = cast(str, event.get("transcript", ""))
                     if len(transcript) > 0:
                         self._end_turn(transcript)
                         self._start_turn()
                         await self._output_queue.put(transcript)
+
+                elif event_type == "input_audio_buffer.speech_started":
+                    print("!!!!! OpenAI Found new speech !!!!!")
+                    self._end_turn("")
+                    await self._output_queue.put("TURN IS INTERCEPTED")
+
                 await asyncio.sleep(0)  # yield control
             except asyncio.TimeoutError:
                 # No new events for a while. Assume the session is done.
@@ -282,7 +306,9 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
             ) as ws:
                 await self._setup_connection(ws)
                 self._process_events_task = asyncio.create_task(self._handle_events())
-                self._stream_audio_task = asyncio.create_task(self._stream_audio(self._input_queue))
+                self._stream_audio_task = asyncio.create_task(
+                    self._stream_audio(self._input_queue)
+                )
                 self.connected = True
                 if self._listener_task:
                     await self._listener_task
@@ -328,7 +354,9 @@ class OpenAISTTTranscriptionSession(StreamedTranscriptionSession):
             self._connection_task.cancel()
 
     async def transcribe_turns(self) -> AsyncIterator[str]:
-        self._connection_task = asyncio.create_task(self._process_websocket_connection())
+        self._connection_task = asyncio.create_task(
+            self._process_websocket_connection()
+        )
 
         while True:
             try:

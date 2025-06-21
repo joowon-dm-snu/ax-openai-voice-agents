@@ -32,6 +32,7 @@ class VoicePipeline:
         stt_model: STTModel | str | None = None,
         tts_model: TTSModel | str | None = None,
         config: VoicePipelineConfig | None = None,
+        trigger_user_message: str | None = None,
     ):
         """Create a new voice pipeline.
 
@@ -50,6 +51,8 @@ class VoicePipeline:
         self._stt_model_name = stt_model if isinstance(stt_model, str) else None
         self._tts_model_name = tts_model if isinstance(tts_model, str) else None
         self.config = config or VoicePipelineConfig()
+
+        self.trigger_user_message = trigger_user_message or "hello? why are you calling me?"
 
     async def run(
         self, audio_input: AudioInput | StreamedAudioInput
@@ -151,7 +154,7 @@ class VoicePipeline:
                 try:
                     await output._start_turn()
                     result = self.workflow.run(
-                        "hello? why are you calling me?", is_intro=True
+                        self.trigger_user_message, is_intro=True
                     )
                     async for text_event in result:
                         await output._add_text(text_event)

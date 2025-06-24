@@ -55,7 +55,7 @@ class VoicePipeline:
         self.trigger_user_message = trigger_user_message or "hello? why are you calling me?"
 
     async def run(
-        self, audio_input: AudioInput | StreamedAudioInput
+        self, audio_input: AudioInput | StreamedAudioInput, stop_event: asyncio.Event | None = None
     ) -> StreamedAudioResult:
         """Run the voice pipeline.
 
@@ -71,7 +71,7 @@ class VoicePipeline:
         if isinstance(audio_input, AudioInput):
             return await self._run_single_turn(audio_input)
         elif isinstance(audio_input, StreamedAudioInput):
-            return await self._run_multi_turn(audio_input)
+            return await self._run_multi_turn(audio_input, stop_event=stop_event)
         else:
             raise UserError(f"Unsupported audio input type: {type(audio_input)}")
 
@@ -129,7 +129,7 @@ class VoicePipeline:
             return output
 
     async def _run_multi_turn(
-        self, audio_input: StreamedAudioInput
+        self, audio_input: StreamedAudioInput, stop_event: asyncio.Event | None = None
     ) -> StreamedAudioResult:
         with TraceCtxManager(
             workflow_name=self.config.workflow_name or "Voice Agent",
@@ -172,6 +172,10 @@ class VoicePipeline:
                             result = self.workflow.run(input_text)
                             async for text_event in result:
                                 await output._add_text(text_event)
+
+                        if stop_event and stop_event.is_set():
+                            logger.info("Stop event detected, ending processing.")
+                            break
                         await output._turn_done()
                 except Exception as e:
                     logger.error(f"Error processing turns: {e}")

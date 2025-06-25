@@ -11,6 +11,8 @@ from ..run import Runner
 
 
 class VoiceWorkflowBase(abc.ABC):
+    intro_message: str | None = None
+
     """
     A base class for a voice workflow. You must implement the `run` method. A "workflow" is any
     code you want, that receives a transcription and yields text that will be turned into speech

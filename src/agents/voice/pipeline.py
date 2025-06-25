@@ -32,7 +32,6 @@ class VoicePipeline:
         stt_model: STTModel | str | None = None,
         tts_model: TTSModel | str | None = None,
         config: VoicePipelineConfig | None = None,
-        trigger_user_message: str | None = None,
     ):
         """Create a new voice pipeline.
 
@@ -52,7 +51,8 @@ class VoicePipeline:
         self._tts_model_name = tts_model if isinstance(tts_model, str) else None
         self.config = config or VoicePipelineConfig()
 
-        self.trigger_user_message = trigger_user_message or "hello? why are you calling me?"
+        self._intro_message = self.workflow.intro_message or "Hello, Thanks for calling. How can I help you today?"
+
 
     async def run(
         self, audio_input: AudioInput | StreamedAudioInput, stop_event: asyncio.Event | None = None
@@ -147,17 +147,20 @@ class VoicePipeline:
                 self.config.stt_settings,
                 self.config.trace_include_sensitive_data,
                 self.config.trace_include_sensitive_audio_data,
+                stop_event=stop_event,
             )
 
             async def process_turns():
                 # Trigger intro message
                 try:
                     await output._start_turn()
-                    result = self.workflow.run(
-                        self.trigger_user_message, is_intro=True
+                    await output._add_text(self._intro_message)
+                    self.workflow._input_history.append(
+                        {
+                            "role": "assistant",
+                            "content": self._intro_message
+                        }
                     )
-                    async for text_event in result:
-                        await output._add_text(text_event)
                     await output._turn_done()
                 except IntroFinished:
                     # If the intro message is finished, we can continue processing turns

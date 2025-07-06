@@ -101,9 +101,10 @@ class StreamedAudioResult:
         self._ordered_tasks: list[
             asyncio.Queue[VoiceStreamEvent | None]
         ] = []  # New: list to hold local queues for each text segment
-        self._dispatcher_task: asyncio.Task[Any] | None = (
-            None  # Task to dispatch audio chunks in order
-        )
+
+        # Task to dispatch audio chunks in order – 인스턴스 생성 직후 바로 시작
+        self._dispatcher_task: asyncio.Task[Any] = asyncio.create_task(self._dispatch_audio())
+
 
         self._done_processing = False
         self._buffer_size = tts_settings.buffer_size
@@ -227,14 +228,12 @@ class StreamedAudioResult:
             self._text_buffer
         )
 
-        if len(combined_sentences) >= 20:
+        if len(combined_sentences) >= 1:
             local_queue: asyncio.Queue[VoiceStreamEvent | None] = asyncio.Queue()
             self._ordered_tasks.append(local_queue)
             self._tasks.append(
                 asyncio.create_task(self._stream_audio(combined_sentences, local_queue))
             )
-            if self._dispatcher_task is None:
-                self._dispatcher_task = asyncio.create_task(self._dispatch_audio())
 
     async def _turn_intercepted(self):
         self._text_buffer = ""
@@ -253,9 +252,6 @@ class StreamedAudioResult:
             )
             self._text_buffer = ""
         self._done_processing = True
-        if self._dispatcher_task is None:
-            self._dispatcher_task = asyncio.create_task(self._dispatch_audio())
-        await asyncio.gather(*self._tasks)
 
     def _finish_turn(self):
         if self._tracing_span:
@@ -273,25 +269,53 @@ class StreamedAudioResult:
         self._completed_session = True
         await self._wait_for_completion()
 
+    # async def _dispatch_audio(self):
+    #     # Dispatch audio chunks from each segment in the order they were added
+    #     while True:
+    #         if len(self._ordered_tasks) == 0:
+    #             if self._completed_session:
+    #                 break
+    #             await asyncio.sleep(0)
+    #             continue
+    #         local_queue = self._ordered_tasks.pop(0)
+    #         while True:
+    #             chunk = await local_queue.get()
+    #             if chunk is None:
+    #                 break
+    #             await self._queue.put(chunk)
+    #             if isinstance(chunk, VoiceStreamEventLifecycle):
+    #                 local_queue.task_done()
+    #                 if chunk.event == "turn_ended":
+    #                     self._finish_turn()
+    #                     break
+    #     await self._queue.put(VoiceStreamEventLifecycle(event="session_ended"))
+
     async def _dispatch_audio(self):
-        # Dispatch audio chunks from each segment in the order they were added
+        # ordered_queues가 비고, turn_done()으로 _done_processing=True가 세팅될 때까지 반복
         while True:
-            if len(self._ordered_tasks) == 0:
-                if self._completed_session:
-                    break
-                await asyncio.sleep(0)
+            # 전체 처리 완료 조건: 모든 텍스트 청크가 들어오고, ordered_queues가 비었을 때
+            if self._completed_session and not self._ordered_tasks:
+                break
+
+            # 새 큐가 없으면 잠시 대기
+            if not self._ordered_tasks:
+                await asyncio.sleep(0.01)
                 continue
-            local_queue = self._ordered_tasks.pop(0)
+
+            # 새로 들어온 segment 큐를 꺼내서 그 안의 이벤트를 하나씩 처리
+            queue = self._ordered_tasks.pop(0)
             while True:
-                chunk = await local_queue.get()
+                chunk = await queue.get()
                 if chunk is None:
                     break
                 await self._queue.put(chunk)
                 if isinstance(chunk, VoiceStreamEventLifecycle):
-                    local_queue.task_done()
+                    queue.task_done()
                     if chunk.event == "turn_ended":
                         self._finish_turn()
                         break
+
+        # 모든 세그먼트가 처리되면 세션 종료 이벤트
         await self._queue.put(VoiceStreamEventLifecycle(event="session_ended"))
 
     async def _wait_for_completion(self):

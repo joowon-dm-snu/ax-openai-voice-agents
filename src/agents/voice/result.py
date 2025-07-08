@@ -21,6 +21,8 @@ from .imports import np, npt
 from .model import TTSModel, TTSModelSettings
 from .pipeline_config import VoicePipelineConfig
 
+_FLUSH_BUFFER_SIZE = 3
+
 
 def pcm_to_ulaw(pcm: np.ndarray) -> np.ndarray:
     """
@@ -171,7 +173,7 @@ class StreamedAudioResult:
                     if chunk:
                         buffer.append(chunk)
                         full_audio_data.append(chunk)
-                        if len(buffer) >= self._buffer_size:
+                        if len(buffer) >= _FLUSH_BUFFER_SIZE:
                             audio_np = self._transform_audio_buffer(
                                 buffer, self.tts_settings.dtype
                             )
@@ -301,7 +303,8 @@ class StreamedAudioResult:
             if not self._ordered_tasks:
                 await asyncio.sleep(0.01)
                 continue
-
+            
+            logger.warning("Dispatching audio from ordered tasks..."                           )
             # 새로 들어온 segment 큐를 꺼내서 그 안의 이벤트를 하나씩 처리
             queue = self._ordered_tasks.pop(0)
             while True:

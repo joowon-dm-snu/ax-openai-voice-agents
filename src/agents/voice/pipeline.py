@@ -188,5 +188,15 @@ class VoicePipeline:
                     await transcription_session.close()
                     await output._done()
 
-            output._set_task(asyncio.create_task(process_turns()))
+            self.processing_task = asyncio.create_task(process_turns())
+            output._set_task(self.processing_task)
             return output
+
+    async def close(self) -> None:
+        """Close the pipeline and release any resources."""
+        if hasattr(self.stt_model, 'close'):
+            await self.stt_model.close()
+        if hasattr(self.tts_model, 'close'):
+            await self.tts_model.close()
+        if self.processing_task:
+            self.processing_task.cancel()

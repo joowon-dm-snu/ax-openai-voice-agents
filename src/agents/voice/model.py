@@ -29,7 +29,9 @@ class TTSModelSettings:
 
     buffer_size: int = 120
     """The minimal size of the chunks of audio data that are being streamed out."""
-
+    
+    flush_buffer_size: int = 1
+    
     dtype: npt.DTypeLike = np.int16
     """The data type for the audio data to be returned in."""
 

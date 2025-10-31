@@ -110,6 +110,7 @@ class StreamedAudioResult:
 
         self._done_processing = False
         self._buffer_size = tts_settings.buffer_size
+        self._flush_buffer_size = tts_settings.flush_buffer_size
         self._started_processing_turn = False
         self._first_byte_received = False
         self._generation_start_time: str | None = None
@@ -173,7 +174,7 @@ class StreamedAudioResult:
                     if chunk:
                         buffer.append(chunk)
                         full_audio_data.append(chunk)
-                        if len(buffer) >= _FLUSH_BUFFER_SIZE:
+                        if len(buffer) >= self._flush_buffer_size:
                             audio_np = self._transform_audio_buffer(
                                 buffer, self.tts_settings.dtype
                             )
